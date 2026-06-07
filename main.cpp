@@ -214,6 +214,23 @@ static Mat largestConnectedComponent(const Mat& binary) {
     return out;
 }
 
+static Mat fillMaskHoles(const Mat& binaryMask) {
+    Mat flood = binaryMask.clone();
+    floodFill(flood, Point(0, 0), Scalar(255));
+    Mat floodInv;
+    bitwise_not(flood, floodInv);
+    Mat filled = binaryMask | floodInv;
+    return filled;
+}
+
+static double rectIoU(const Rect& a, const Rect& b) {
+    Rect inter = a & b;
+    if (inter.area() <= 0) return 0.0;
+    double u = static_cast<double>(a.area() + b.area() - inter.area());
+    if (u <= 0.0) return 0.0;
+    return inter.area() / u;
+}
+
 static Point findSeedNearCenter(const Mat& mask) {
     Point center(mask.cols / 2, mask.rows / 2);
     if (mask.at<uchar>(center) > 0) return center;
@@ -247,8 +264,29 @@ Mat faceSegmentByRegionGrowing(const Mat& img) {
     Point seed = findSeedNearCenter(skinMask);
     Mat rg = regionGrowAdaptive(gray, seed, 20, skinMask);
     Mat faceMask = largestConnectedComponent(rg);
+    faceMask = fillMaskHoles(faceMask);
 
     morphologyEx(faceMask, faceMask, MORPH_CLOSE, kernel, Point(-1, -1), 1);
+    morphologyEx(faceMask, faceMask, MORPH_OPEN, kernel, Point(-1, -1), 1);
+
+    vector<vector<Point>> contours;
+    findContours(faceMask, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+    if (!contours.empty()) {
+        size_t bestIdx = 0;
+        double bestArea = contourArea(contours[0]);
+        for (size_t i = 1; i < contours.size(); ++i) {
+            double a = contourArea(contours[i]);
+            if (a > bestArea) {
+                bestArea = a;
+                bestIdx = i;
+            }
+        }
+        vector<Point> hull;
+        convexHull(contours[bestIdx], hull);
+        Mat hullMask = Mat::zeros(faceMask.size(), CV_8U);
+        drawContours(hullMask, vector<vector<Point>>{hull}, 0, Scalar(255), FILLED);
+        faceMask = hullMask;
+    }
 
     Mat face = Mat::zeros(img.size(), img.type());
     img.copyTo(face, faceMask);
@@ -287,8 +325,39 @@ Mat faceSegmentByWatershed(const Mat& img) {
     Mat wsInput = img.clone();
     watershed(wsInput, markers);
 
+    Point center(img.cols / 2, img.rows / 2);
+    int targetLabel = markers.at<int>(center);
+    if (targetLabel <= 1) {
+        double maxMarker = 0;
+        minMaxLoc(markers, nullptr, &maxMarker);
+        int maxLabel = static_cast<int>(maxMarker);
+        vector<int> areas(maxLabel + 1, 0);
+        for (int y = 0; y < markers.rows; ++y) {
+            const int* row = markers.ptr<int>(y);
+            for (int x = 0; x < markers.cols; ++x) {
+                int label = row[x];
+                if (label > 1) areas[label]++;
+            }
+        }
+        for (int label = 2; label <= maxLabel; ++label) {
+            if (areas[label] > (targetLabel > 1 ? areas[targetLabel] : 0)) {
+                targetLabel = label;
+            }
+        }
+    }
+
+    Mat faceMask = Mat::zeros(img.size(), CV_8U);
+    if (targetLabel > 1) {
+        faceMask.setTo(255, markers == targetLabel);
+    }
+    faceMask = largestConnectedComponent(faceMask);
+    faceMask = fillMaskHoles(faceMask);
+    morphologyEx(faceMask, faceMask, MORPH_CLOSE, kernel, Point(-1, -1), 1);
+
+    Mat edge;
+    morphologyEx(faceMask, edge, MORPH_GRADIENT, kernel);
     Mat res = img.clone();
-    res.setTo(Scalar(0, 255, 0), markers == -1);
+    res.setTo(Scalar(0, 255, 0), edge > 0);
     return res;
 }
 
@@ -334,8 +403,8 @@ Mat fruitDetectNatural(const Mat& img) {
     cvtColor(img, hsv, COLOR_BGR2HSV);
 
     Mat maskBanana, maskWatermelon, maskRed1, maskRed2, maskRed;
-    inRange(hsv, Scalar(15, 70, 60), Scalar(40, 255, 255), maskBanana);
-    inRange(hsv, Scalar(35, 35, 35), Scalar(90, 255, 255), maskWatermelon);
+    inRange(hsv, Scalar(16, 60, 55), Scalar(34, 255, 255), maskBanana);
+    inRange(hsv, Scalar(40, 35, 35), Scalar(90, 255, 255), maskWatermelon);
     inRange(hsv, Scalar(0, 90, 70), Scalar(12, 255, 255), maskRed1);
     inRange(hsv, Scalar(160, 90, 70), Scalar(180, 255, 255), maskRed2);
     maskRed = maskRed1 | maskRed2;
@@ -343,9 +412,26 @@ Mat fruitDetectNatural(const Mat& img) {
     cleanMask(maskBanana, 7);
     cleanMask(maskWatermelon, 7);
     cleanMask(maskRed, 7);
+    dilate(maskBanana, maskBanana, getStructuringElement(MORPH_ELLIPSE, Size(9, 5)), Point(-1, -1), 1);
+
+    Mat overlap;
+    bitwise_and(maskBanana, maskWatermelon, overlap);
+    if (countNonZero(overlap) > 0) {
+        Mat hue, toBanana, toWatermelon, notToBanana;
+        extractChannel(hsv, hue, 0);
+        inRange(hue, Scalar(0), Scalar(34), toBanana);
+        bitwise_and(toBanana, overlap, toBanana);
+        bitwise_not(toBanana, notToBanana);
+        bitwise_and(overlap, notToBanana, toWatermelon);
+        maskBanana.setTo(0, overlap);
+        maskWatermelon.setTo(0, overlap);
+        maskBanana.setTo(255, toBanana);
+        maskWatermelon.setTo(255, toWatermelon);
+    }
 
     Mat res = img.clone();
     vector<vector<Point>> cnts;
+    vector<Rect> drawnRects;
 
     // Watermelon: green + near round
     findContours(maskWatermelon, cnts, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
@@ -356,8 +442,17 @@ Mat fruitDetectNatural(const Mat& img) {
         double ratio = static_cast<double>(r.width) / std::max(r.height, 1);
         double round = getRoundness(c);
         if (round > 0.55 && ratio > 0.65 && ratio < 1.45) {
+            bool overlapDrawn = false;
+            for (const auto& dr : drawnRects) {
+                if (rectIoU(r, dr) > 0.35) {
+                    overlapDrawn = true;
+                    break;
+                }
+            }
+            if (overlapDrawn) continue;
             rectangle(res, r, Scalar(0, 255, 0), 2);
             putText(res, "Watermelon", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 0), 2);
+            drawnRects.push_back(r);
         }
     }
 
@@ -370,8 +465,17 @@ Mat fruitDetectNatural(const Mat& img) {
         double ratio = static_cast<double>(r.width) / std::max(r.height, 1);
         double round = getRoundness(c);
         if ((ratio > 1.5 || ratio < 0.67) && round < 0.58) {
+            bool overlapDrawn = false;
+            for (const auto& dr : drawnRects) {
+                if (rectIoU(r, dr) > 0.35) {
+                    overlapDrawn = true;
+                    break;
+                }
+            }
+            if (overlapDrawn) continue;
             rectangle(res, r, Scalar(0, 255, 255), 2);
             putText(res, "Banana", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 255), 2);
+            drawnRects.push_back(r);
         }
     }
 
@@ -387,11 +491,29 @@ Mat fruitDetectNatural(const Mat& img) {
 
         double round = getRoundness(c);
         if (round > 0.78) {
+            bool overlapDrawn = false;
+            for (const auto& dr : drawnRects) {
+                if (rectIoU(r, dr) > 0.35) {
+                    overlapDrawn = true;
+                    break;
+                }
+            }
+            if (overlapDrawn) continue;
             rectangle(res, r, Scalar(255, 0, 255), 2);
             putText(res, "Apple", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 0, 255), 2);
+            drawnRects.push_back(r);
         } else if (round > 0.5) {
+            bool overlapDrawn = false;
+            for (const auto& dr : drawnRects) {
+                if (rectIoU(r, dr) > 0.35) {
+                    overlapDrawn = true;
+                    break;
+                }
+            }
+            if (overlapDrawn) continue;
             rectangle(res, r, Scalar(255, 165, 0), 2);
             putText(res, "Pomegranate", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 165, 0), 2);
+            drawnRects.push_back(r);
         }
     }
 
