@@ -35,6 +35,7 @@ double calcEntropy(const Mat& input) {
 Mat addGaussianNoise(const Mat& gray, double stddev = 25.0) {
     Mat gray32f, noise, dst32f, dst;
     gray.convertTo(gray32f, CV_32F);
+    noise = Mat(gray32f.size(), gray32f.type());
     randn(noise, 0, stddev);
     dst32f = gray32f + noise;
     min(dst32f, 255, dst32f);
