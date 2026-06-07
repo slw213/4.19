@@ -218,7 +218,7 @@ static Point findSeedNearCenter(const Mat& mask) {
     Point center(mask.cols / 2, mask.rows / 2);
     if (mask.at<uchar>(center) > 0) return center;
 
-    int maxR = min(mask.cols, mask.rows) / 4;
+    int maxR = std::min(mask.cols, mask.rows) / 4;
     for (int r = 1; r <= maxR; ++r) {
         for (int dy = -r; dy <= r; ++dy) {
             for (int dx = -r; dx <= r; ++dx) {
@@ -308,7 +308,7 @@ Mat licensePlateLocate(const Mat& img) {
     for (const auto& c : cnts) {
         Rect r = boundingRect(c);
         double area = contourArea(c);
-        double ratio = static_cast<double>(r.width) / max(r.height, 1);
+        double ratio = static_cast<double>(r.width) / std::max(r.height, 1);
         if (area > 700 && ratio > 2.2 && ratio < 6.5 && r.width > 60) {
             rectangle(res, r, Scalar(0, 0, 255), 2);
         }
@@ -353,11 +353,11 @@ Mat fruitDetectNatural(const Mat& img) {
         double area = contourArea(c);
         if (area < 1200) continue;
         Rect r = boundingRect(c);
-        double ratio = static_cast<double>(r.width) / max(r.height, 1);
+        double ratio = static_cast<double>(r.width) / std::max(r.height, 1);
         double round = getRoundness(c);
         if (round > 0.55 && ratio > 0.65 && ratio < 1.45) {
             rectangle(res, r, Scalar(0, 255, 0), 2);
-            putText(res, "Watermelon", Point(r.x, max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 0), 2);
+            putText(res, "Watermelon", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 0), 2);
         }
     }
 
@@ -367,11 +367,11 @@ Mat fruitDetectNatural(const Mat& img) {
         double area = contourArea(c);
         if (area < 700) continue;
         Rect r = boundingRect(c);
-        double ratio = static_cast<double>(r.width) / max(r.height, 1);
+        double ratio = static_cast<double>(r.width) / std::max(r.height, 1);
         double round = getRoundness(c);
         if ((ratio > 1.5 || ratio < 0.67) && round < 0.58) {
             rectangle(res, r, Scalar(0, 255, 255), 2);
-            putText(res, "Banana", Point(r.x, max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 255), 2);
+            putText(res, "Banana", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 255), 2);
         }
     }
 
@@ -382,16 +382,16 @@ Mat fruitDetectNatural(const Mat& img) {
         if (area < 900) continue;
 
         Rect r = boundingRect(c);
-        double ratio = static_cast<double>(r.width) / max(r.height, 1);
+        double ratio = static_cast<double>(r.width) / std::max(r.height, 1);
         if (ratio < 0.65 || ratio > 1.5) continue;
 
         double round = getRoundness(c);
         if (round > 0.78) {
             rectangle(res, r, Scalar(255, 0, 255), 2);
-            putText(res, "Apple", Point(r.x, max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 0, 255), 2);
+            putText(res, "Apple", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 0, 255), 2);
         } else if (round > 0.5) {
             rectangle(res, r, Scalar(255, 165, 0), 2);
-            putText(res, "Pomegranate", Point(r.x, max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 165, 0), 2);
+            putText(res, "Pomegranate", Point(r.x, std::max(15, r.y - 6)), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 165, 0), 2);
         }
     }
 
