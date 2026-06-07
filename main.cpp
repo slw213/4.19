@@ -171,7 +171,7 @@ Mat regionGrowAdaptive(const Mat& gray, Point seed, int thresholdValue, const Ma
             if (!limitMask.empty() && limitMask.at<uchar>(y, x) == 0) continue;
 
             uchar val = gray.at<uchar>(y, x);
-            if (abs(val - runningMean) <= thresholdValue) {
+            if (std::fabs(static_cast<double>(val) - runningMean) <= static_cast<double>(thresholdValue)) {
                 mask.at<uchar>(y, x) = 255;
                 q.push(Point(x, y));
                 runningMean = (runningMean * count + val) / (count + 1);
