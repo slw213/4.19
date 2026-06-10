@@ -97,8 +97,10 @@ module Control(
     // 立即数拼接 
     wire [31:0] iimm = {{20{ct_inst[31]}}, ct_inst[31:20]};
     wire [31:0] simm = {{20{ct_inst[31]}}, ct_inst[31:25], ct_inst[11:7]};
-    wire [31:0] bimm = {{19{ct_inst[31]}}, ct_inst[31], ct_inst[7], ct_inst[30:25], ct_inst[11:8], 1'b0};
-    wire [31:0] jimm = {{11{ct_inst[31]}}, ct_inst[31], ct_inst[19:12], ct_inst[20], ct_inst[30:21], 1'b0};
+    // BUG FIX: B-type immediate sign extension should be 20 bits, not 19
+    wire [31:0] bimm = {{20{ct_inst[31]}}, ct_inst[31], ct_inst[7], ct_inst[30:25], ct_inst[11:8], 1'b0};
+    // BUG FIX: J-type immediate sign extension should be 12 bits, not 11
+    wire [31:0] jimm = {{12{ct_inst[31]}}, ct_inst[31], ct_inst[19:12], ct_inst[20], ct_inst[30:21], 1'b0};
 
     assign ext_data = (is_addi | is_lw | is_srai) ? iimm :
                       is_sw            ? simm :
@@ -171,10 +173,11 @@ module RegFile(
     assign rf_data_r1=(rf_addr_r1==5'd0)?32'd0:regs[rf_addr_r1];
     assign rf_data_r2=(rf_addr_r2==5'd0)?32'd0:regs[rf_addr_r2];
     
-    //写操作
-    always@(negedge clk) begin
-        if (rf_wen&&(rf_addr_w!=5'd0)) begin
-            regs[rf_addr_w]=rf_data_w;
+    // BUG FIX: Register write should happen on posedge clk (rising edge), not negedge clk
+    // This ensures proper synchronization with instruction decode and ALU result generation
+    always@(posedge clk) begin
+        if (rf_wen && (rf_addr_w!=5'd0)) begin
+            regs[rf_addr_w] <= rf_data_w;
         end
     end
 endmodule
