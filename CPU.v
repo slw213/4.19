@@ -106,11 +106,12 @@ module Control(
                       is_jal           ? jimm :
                       32'b0;
 
-    // 立即数扩展操作类型
-    assign EXTOp = is_jal  ? 2'b11 :
-                   is_beq  ? 2'b10 :
-                   is_sw   ? 2'b01 :
-                   2'b00;
+    // 立即数扩展操作类型，复位时输出0避免X传播
+    assign EXTOp = !rst ? 2'b00 :
+                   (is_jal  ? 2'b11 :
+                    is_beq  ? 2'b10 :
+                    is_sw   ? 2'b01 :
+                    2'b00);
 
 endmodule
 
